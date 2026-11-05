@@ -1,0 +1,16 @@
+[component]
+name = "SigmaOS-craft-3d"
+tier = 5
+stability = "scaffold"
+language = "rust"
+description = "3D modelling integration for SigmaOS creative suite — Blender integration, scene management, mesh operations, and glTF export"
+upstream = ["https://github.com/blender/blender"]
+
+[contract]
+provides = ["3d-modelling", "mesh-operations", "gltf-export"]
+depends_on = []
+
+[maturity]
+status = "Scaffold"
+test_evidence = "Compiles"
+next_milestone = "Verification test suite"

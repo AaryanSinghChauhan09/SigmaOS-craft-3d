@@ -1,0 +1,9 @@
+[package]
+name = "sigmaos_craft_3d"
+version = "0.1.0"
+edition = "2021"
+description = "3D modelling integration for SigmaOS creative suite — Blender integration, scene management, mesh operations, and glTF export"
+
+[lib]
+name = "sigmaos_craft_3d"
+path = "src/lib.rs"
