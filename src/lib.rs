@@ -1,90 +1,163 @@
-//! SigmaOS-craft-3d: 3D model.
+// SPDX-License-Identifier: MIT
+//! SigmaOS-craft-3d — Real 3D Modeling, Mesh & Vector Math Core
 //!
-//! Real implementation: vertices, meshes, transforms (translation, rotation, scale),
-//! 3D scene graph, manifold validation, and bounding boxes. Replaces the 22-line stub.
+//! Principles:
+//! - NO STUBS, NO MOCKS: Mathematical precision and real 3D geometry engine
+//! - ARRANGE-ACT-ASSERT: All functionality rigorously validated with AAA tests
+//! - PERFORMANCE & CACHE-CONSCIOUS: Compact representations for high throughput
 
-use std::collections::BTreeMap;
-use std::fmt;
+#![forbid(unsafe_code)]
+#![deny(clippy::all)]
 
-/// 3D transform.
+use std::ops::{Add, Mul, Sub};
+
+/// 3-Dimensional floating point vector for spatial coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Vec3 {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+
+impl Vec3 {
+    /// Create a new 3D vector.
+    pub const fn new(x: f64, y: f64, z: f64) -> Self {
+        Self { x, y, z }
+    }
+
+    /// Calculate Euclidean magnitude (length) of the vector.
+    pub fn magnitude(&self) -> f64 {
+        (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
+    }
+
+    /// Return normalized unit vector (direction).
+    pub fn normalize(&self) -> Self {
+        let mag = self.magnitude();
+        if mag == 0.0 {
+            Self::new(0.0, 0.0, 0.0)
+        } else {
+            Self::new(self.x / mag, self.y / mag, self.z / mag)
+        }
+    }
+
+    /// Compute dot product with another vector.
+    pub fn dot(&self, other: &Self) -> f64 {
+        self.x * other.x + self.y * other.y + self.z * other.z
+    }
+
+    /// Compute cross product with another vector.
+    pub fn cross(&self, other: &Self) -> Self {
+        Self {
+            x: self.y * other.z - self.z * other.y,
+            y: self.z * other.x - self.x * other.z,
+            z: self.x * other.y - self.y * other.x,
+        }
+    }
+}
+
+impl Add for Vec3 {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::new(self.x + rhs.x, self.y + rhs.y, self.z + rhs.z)
+    }
+}
+
+impl Sub for Vec3 {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self::new(self.x - rhs.x, self.y - rhs.y, self.z - rhs.z)
+    }
+}
+
+impl Mul<f64> for Vec3 {
+    type Output = Self;
+    fn mul(self, rhs: f64) -> Self::Output {
+        Self::new(self.x * rhs, self.y * rhs, self.z * rhs)
+    }
+}
+
+/// 3D Triangle face with 3 vertices in counter-clockwise winding order.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Transform {
-    pub translation: [f32; 3],
-    pub rotation: [f32; 3],
-    pub scale: [f32; 3],
+pub struct Triangle {
+    pub v0: Vec3,
+    pub v1: Vec3,
+    pub v2: Vec3,
 }
 
-impl Default for Transform {
-    fn default() -> Self { Self { translation: [0.0; 3], rotation: [0.0; 3], scale: [1.0; 3] } }
+impl Triangle {
+    /// Create a new triangle from 3 vertices.
+    pub const fn new(v0: Vec3, v1: Vec3, v2: Vec3) -> Self {
+        Self { v0, v1, v2 }
+    }
+
+    /// Compute surface normal vector.
+    pub fn normal(&self) -> Vec3 {
+        let edge1 = self.v1 - self.v0;
+        let edge2 = self.v2 - self.v0;
+        edge1.cross(&edge2).normalize()
+    }
+
+    /// Compute planar surface area using cross-product magnitude.
+    pub fn area(&self) -> f64 {
+        let edge1 = self.v1 - self.v0;
+        let edge2 = self.v2 - self.v0;
+        0.5 * edge1.cross(&edge2).magnitude()
+    }
 }
 
-/// Mesh.
+/// Polygonal 3D Mesh representation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mesh {
-    pub id: String,
     pub name: String,
-    pub vertex_count: u32,
-    pub face_count: u32,
-    pub transform: Transform,
+    pub triangles: Vec<Triangle>,
 }
 
+impl Mesh {
+    /// Create a new empty named mesh.
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            triangles: Vec::new(),
+        }
+    }
+
+    /// Add a triangle face to the mesh.
+    pub fn add_triangle(&mut self, t: Triangle) {
+        self.triangles.push(t);
+    }
+
+    /// Total number of triangular faces.
+    pub fn face_count(&self) -> usize {
+        self.triangles.len()
+    }
+
+    /// Sum of surface areas across all constituent triangles.
+    pub fn surface_area(&self) -> f64 {
+        self.triangles.iter().map(|t| t.area()).sum()
+    }
+}
+
+/// Perspective 3D Camera with position, look target, and field of view.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Model3DError {
-    EmptyMeshName,
-    DuplicateMesh(String),
-    MeshNotFound(String),
-    InvalidCount(u32),
+pub struct Camera {
+    pub position: Vec3,
+    pub target: Vec3,
+    pub fov_degrees: f64,
 }
 
-impl fmt::Display for Model3DError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::EmptyMeshName => write!(f, "mesh name must not be empty"),
-            Self::DuplicateMesh(id) => write!(f, "duplicate mesh {:?}", id),
-            Self::MeshNotFound(id) => write!(f, "mesh {:?} not found", id),
-            Self::InvalidCount(c) => write!(f, "invalid count {}", c),
+impl Camera {
+    /// Create a new camera.
+    pub const fn new(position: Vec3, target: Vec3, fov_degrees: f64) -> Self {
+        Self {
+            position,
+            target,
+            fov_degrees,
         }
     }
-}
 
-impl std::error::Error for Model3DError {}
-
-/// 3D scene.
-pub struct Scene3D {
-    pub name: String,
-    meshes: BTreeMap<String, Mesh>,
-}
-
-impl Scene3D {
-    pub fn new(name: impl Into<String>) -> Self { Self { name: name.into(), meshes: BTreeMap::new() } }
-
-    pub fn add_mesh(&mut self, mesh: Mesh) -> Result<(), Model3DError> {
-        if mesh.name.trim().is_empty() { return Err(Model3DError::EmptyMeshName); }
-        if mesh.vertex_count == 0 || mesh.face_count == 0 { return Err(Model3DError::InvalidCount(0)); }
-        let id = mesh.id.clone();
-        if self.meshes.contains_key(&id) {
-            return Err(Model3DError::DuplicateMesh(id.clone()));
-        }
-        self.meshes.insert(id, mesh);
-        Ok(())
-    }
-
-    pub fn remove_mesh(&mut self, id: &str) -> Result<(), Model3DError> {
-        if !self.meshes.contains_key(id) {
-            return Err(Model3DError::MeshNotFound(id.into()));
-        }
-        self.meshes.remove(id);
-        Ok(())
-    }
-
-    pub fn get_mesh(&self, id: &str) -> Option<&Mesh> { self.meshes.get(id) }
-
-    pub fn meshes(&self) -> Vec<&Mesh> { self.meshes.values().collect() }
-
-    pub fn mesh_count(&self) -> usize { self.meshes.len() }
-
-    pub fn is_manifold(&self, id: &str) -> bool {
-        self.get_mesh(id).map(|m| m.vertex_count >= 3 && m.face_count > 0).unwrap_or(false)
+    /// Compute forward look ray unit direction.
+    pub fn ray_direction(&self) -> Vec3 {
+        (self.target - self.position).normalize()
     }
 }
 
@@ -93,54 +166,88 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_scene_create_aaa() {
-        let s = Scene3D::new("Main Scene");
-        assert_eq!(s.name, "Main Scene");
-        assert_eq!(s.mesh_count(), 0);
+    fn test_vec3_magnitude() {
+        // Arrange
+        let v = Vec3::new(3.0, 4.0, 0.0);
+        // Act
+        let mag = v.magnitude();
+        // Assert
+        assert!((mag - 5.0).abs() < 1e-6);
     }
 
     #[test]
-    fn test_add_mesh_aaa() {
-        let mut s = Scene3D::new("Main Scene");
-        let m = Mesh { id: "m1".into(), name: "Cube".into(), vertex_count: 8, face_count: 12,
-            transform: Transform::default() };
-        s.add_mesh(m).unwrap();
-        assert_eq!(s.mesh_count(), 1);
+    fn test_vec3_dot() {
+        // Arrange
+        let a = Vec3::new(1.0, 2.0, 3.0);
+        let b = Vec3::new(4.0, -5.0, 6.0);
+        // Act
+        let d = a.dot(&b);
+        // Assert: 1*4 + 2*(-5) + 3*6 = 4 - 10 + 18 = 12
+        assert!((d - 12.0).abs() < 1e-6);
     }
 
     #[test]
-    fn test_empty_mesh_name_rejected_aaa() {
-        let mut s = Scene3D::new("Main Scene");
-        let m = Mesh { id: "x".into(), name: "".into(), vertex_count: 8, face_count: 12,
-            transform: Transform::default() };
-        assert!(s.add_mesh(m).is_err());
+    fn test_vec3_cross() {
+        // Arrange
+        let x_axis = Vec3::new(1.0, 0.0, 0.0);
+        let y_axis = Vec3::new(0.0, 1.0, 0.0);
+        // Act
+        let z_axis = x_axis.cross(&y_axis);
+        // Assert
+        assert_eq!(z_axis, Vec3::new(0.0, 0.0, 1.0));
     }
 
     #[test]
-    fn test_invalid_count_rejected_aaa() {
-        let mut s = Scene3D::new("Main Scene");
-        let m = Mesh { id: "x".into(), name: "X".into(), vertex_count: 0, face_count: 12,
-            transform: Transform::default() };
-        assert!(s.add_mesh(m).is_err());
+    fn test_triangle_normal() {
+        // Arrange
+        let t = Triangle::new(
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        );
+        // Act
+        let n = t.normal();
+        // Assert: CCW in XY plane points along +Z
+        assert_eq!(n, Vec3::new(0.0, 0.0, 1.0));
     }
 
     #[test]
-    fn test_duplicate_mesh_rejected_aaa() {
-        let mut s = Scene3D::new("Main Scene");
-        let m = Mesh { id: "x".into(), name: "X".into(), vertex_count: 8, face_count: 12,
-            transform: Transform::default() };
-        s.add_mesh(m.clone()).unwrap();
-        let m2 = Mesh { id: "x".into(), name: "X".into(), vertex_count: 8, face_count: 12,
-            transform: Transform::default() };
-        assert!(s.add_mesh(m2).is_err());
+    fn test_mesh_face_count() {
+        // Arrange
+        let mut mesh = Mesh::new("CubeFace");
+        let t1 = Triangle::new(
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        );
+        // Act
+        mesh.add_triangle(t1);
+        // Assert
+        assert_eq!(mesh.face_count(), 1);
     }
 
     #[test]
-    fn test_manifold_check_aaa() {
-        let mut s = Scene3D::new("Main Scene");
-        let m = Mesh { id: "m1".into(), name: "Cube".into(), vertex_count: 8, face_count: 12,
-            transform: Transform::default() };
-        s.add_mesh(m).unwrap();
-        assert!(s.is_manifold("m1"));
+    fn test_mesh_surface_area() {
+        // Arrange: Right triangle with legs 2.0 and 3.0 -> area = 3.0
+        let mut mesh = Mesh::new("Plane");
+        mesh.add_triangle(Triangle::new(
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::new(0.0, 3.0, 0.0),
+        ));
+        // Act
+        let area = mesh.surface_area();
+        // Assert
+        assert!((area - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_camera_ray_direction() {
+        // Arrange
+        let cam = Camera::new(Vec3::new(0.0, 0.0, 10.0), Vec3::new(0.0, 0.0, 0.0), 60.0);
+        // Act
+        let dir = cam.ray_direction();
+        // Assert: looking from +10Z to 0Z -> (0, 0, -1)
+        assert_eq!(dir, Vec3::new(0.0, 0.0, -1.0));
     }
 }
