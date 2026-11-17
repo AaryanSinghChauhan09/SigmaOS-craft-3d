@@ -3,7 +3,7 @@ name = "SigmaOS-craft-3d"
 tier = 5
 stability = "scaffold"
 language = "rust"
-description = "3D modelling integration for SigmaOS creative suite — Blender integration, scene management, mesh operations, and glTF export"
+description = "No GitHub description is set; component scope remains unclassified."
 upstream = ["https://github.com/blender/blender"]
 
 [contract]
